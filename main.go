@@ -1,36 +1,92 @@
 package main
 
 import (
+	"encoding/csv"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/sy9/axl/axl"
 )
 
-const axlMessage = `
-<addRoutePartition>
-  <name>PT_Internal</name>
-  <description>Whatever</description>
-  <empty/>
-</addRoutePartition>
-`
-func main() {
-	client := axl.NewClient("192.168.1.100:8443")
-	    .SetAuthentication("axladmin", "cisco12345")
-	    .SetSchemaVersion("12.5")
-	    .SetInsecureSkipVerify(true)
+var (
+	cucm    = flag.String("cucm", "", "FQDN or IP of CUCM Publisher / First Node (required)")
+	user    = flag.String("u", "", "AXL username (required)")
+	pass    = flag.String("p", "", "AXL password (required)")
+	insec   = flag.Bool("k", false, "Skip certificate validation")
+	schema  = flag.String("s", "12.5", "AXL schema version")
+	xmlfile = flag.String("xml", "", "XML filename for request input (required)")
+	csvfile = flag.String("csv", "", "CSV filename for bulk requests")
+)
 
-	resp, err := client.AXLRequest(strings.NewReader(axlMessage))
+func readCSV(filename string) [][]string {
+	var records [][]string
+
+	f, err := os.Open(filename)
 	if err != nil {
-		log.Fatalf("error from AXLRequest: %v", err)
+		log.Fatalf("error opening CSV file: %v", err)
 	}
-	io.Copy(os.Stdout, resp.Body())
 
-	enc := axl.NewEncoder(os.Stdout)
-	enc.SchemaVersion = "12.5"
-	if err := enc.Encode(strings.NewReader(axlMessage)); err != nil {
-		log.Fatalf("error encoding AXL: %v", err)
+	defer f.Close()
+
+	records, err = csv.NewReader(f).ReadAll()
+	if err != nil {
+		log.Fatalf("error reading CSV file: %v", err)
 	}
+
+	return records
 }
 
+func main() {
+	flag.Parse()
+	if len(*cucm) == 0 || len(*xmlfile) == 0 || len(*user) == 0 || len(*pass) == 0 {
+		flag.Usage()
+		os.Exit(1)
+	}
+	axlBody, err := ioutil.ReadFile(*xmlfile)
+	if err != nil {
+		log.Fatalf("error reading XML file: %v", err)
+	}
+
+	csvHandler, err := NewCSVHandler(axlBody)
+	if err != nil {
+		log.Fatalf("error initializing CSV handler: %v", err)
+	}
+
+	if len(*csvfile) > 0 {
+		csvHandler.SetRecords(readCSV(*csvfile))
+	}
+
+	client := axl.NewClient(*cucm).
+		SetAuthentication(*user, *pass).
+		SetSchemaVersion(*schema).
+		SetInsecureSkipVerify(*insec)
+
+	for csvHandler.Next() {
+		r, w := io.Pipe()
+		go func() {
+			err := csvHandler.Do(w)
+			if err != nil {
+				log.Fatalf("error executing template: %v", err)
+			}
+			w.Close()
+		}()
+
+		_, err := client.AXLRequest(r)
+		result := "success"
+		if err != nil {
+			//if err, ok := err.(*axl.AXLError); ok{
+			var e *axl.AXLError
+			if errors.As(err, &e) {
+				result = fmt.Sprintf("%s (%d)", e.AXLErrorMessage, e.AXLErrorCode)
+			} else {
+				log.Fatalf("error from AXLRequest: %v", err)
+			}
+		}
+		log.Printf("%s Result: %s", csvHandler.LogIndexAndItem(), result)
+	}
+}

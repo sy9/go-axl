@@ -1,0 +1,6 @@
+<addRoutePartition>
+	<routePartition>
+		<description>{{varlog 1}}</description>
+		<name>{{varlog 0}}</name>
+	</routePartition>
+</addRoutePartition>
