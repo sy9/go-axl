@@ -6,9 +6,10 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"strings"
 	"text/template"
 	"time"
@@ -18,12 +19,12 @@ const (
 	soapEnvelope = `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:n="http://www.cisco.com/AXL/API/{{ .Version }}"><s:Header/><s:Body>{{ .Body }}</s:Body></s:Envelope>`
 )
 
-// AXLResponse contains the response
-type AXLResponse struct {
-	RawBody []byte
+type SOAPEnvelope struct {
+	Body struct {
+		Response []byte `xml:",innerxml"`
+	} `xml:"Body"`
 }
 
-//<?xml version='1.0' encoding='UTF-8'?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><soapenv:Fault><faultcode>soapenv:Client</faultcode><faultstring>Could not insert new row - duplicate value in a UNIQUE INDEX column (Unique Index:).</faultstring><detail><axlError><axlcode>-239</axlcode><axlmessage>Could not insert new row - duplicate value in a UNIQUE INDEX column (Unique Index:).</axlmessage><request>addRoutePartition</request></axlError></detail></soapenv:Fault></soapenv:Body></soapenv:Envelope>
 
 // AXLError contains AXL error details
 type AXLError struct {
@@ -49,6 +50,7 @@ type AXLClient struct {
 	jsessionidcookie   *http.Cookie
 	buf                *bytes.Buffer
 	axlMethod          string
+	dump               bool
 }
 
 // NewClient creates a new AXLClient. The CUCM first node FQDN/IP is necessary
@@ -73,11 +75,16 @@ func (c *AXLClient) SetInsecureSkipVerify(b bool) *AXLClient {
 	return c
 }
 
+func (c *AXLClient) SetRequestResponseDump(d bool) *AXLClient {
+	c.dump = d
+	return c
+}
+
 // AXLRequest reads XML data from the specified reader and issues
 // an AXL request to CUCM. The XML data must not contain any SOAP
 // headers. Insignificant whitespace will be removed. The correct
 // AXL method will be inferred from the included top-level element.
-func (c *AXLClient) AXLRequest(r io.Reader) (*AXLResponse, error) {
+func (c *AXLClient) AXLRequest(r io.Reader) ([]byte, error) {
 	if c.httpClient == nil {
 		c.createClient()
 	}
@@ -100,27 +107,62 @@ func (c *AXLClient) AXLRequest(r io.Reader) (*AXLResponse, error) {
 
 	req := c.createRequest()
 
-	return c.handleResult(c.httpClient.Do(req))
+	if c.dump {
+		if err := dumpClientRequest(req); err != nil {
+			return nil, err
+		}
+	}
+
+	resp, err := c.httpClient.Do(req)
+	return c.handleResult(dumpResponse(resp, err, c.dump))
+}
+
+func dumpResponse(resp *http.Response, err error, dump bool) (*http.Response, error) {
+	if !dump || err != nil {
+		return resp, err
+	}
+	buf, errDump := httputil.DumpResponse(resp, true)
+	if errDump != nil {
+		return nil, errDump
+	}
+	log.Printf("Response dump:\n%s\n\n", string(buf))
+	return resp, err
+}
+
+func dumpClientRequest(req *http.Request) error {
+	buf, err := httputil.DumpRequestOut(req, true)
+	if err != nil {
+		return err
+	}
+	log.Printf("Request dump:\n%s\n\n", string(buf))
+	return nil
 }
 
 func isXML(s string) bool {
 	return strings.Contains(s, "/xml") // can be application/xml or text/xml
 }
 
-func (c *AXLClient) handleResult(resp *http.Response, err error) (*AXLResponse, error) {
+func (c *AXLClient) handleResult(resp *http.Response, err error) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("AXL request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
+	cookies := resp.Cookies()
+	for _, cookie := range cookies {
+		if cookie.Name == "JSESSIONIDSSO" {
+			c.jsessionidcookie = cookie
+			break
+		}
+	}
 	// here we reverse the logic of "happy path" and establish an "unhappy path"
 	if resp.StatusCode == 200 {
-		var axlResponse AXLResponse
-		axlResponse.RawBody, err = ioutil.ReadAll(resp.Body)
+		var soapEnvelope SOAPEnvelope
+		err := xml.NewDecoder(resp.Body).Decode(&soapEnvelope)
 		if err != nil {
-			return nil, fmt.Errorf("Error reading AXL response body: %w", err)
+			return nil, fmt.Errorf("decoding SOAP response: %w", err)
 		}
-		return &axlResponse, nil
+		return soapEnvelope.Body.Response, nil
 	}
 
 	if isXML(resp.Header.Get("Content-Type")) {
@@ -209,6 +251,10 @@ func (a *AXLEncoder) Encode(r io.Reader) error {
 	return nil
 }
 
+// removeWS removes insignificant WS by using a SkipWSEncoder.
+// it also adds the "n" namespace to the top-level element,
+// replacing any existing namespace, if any. It returns the name
+// of the top-level XML element or a non-nil error.
 func removeWS(buf io.Writer, r io.Reader) (string, error) {
 	dec := xml.NewDecoder(r)
 	enc := NewSkipWSEncoder(buf)

@@ -13,6 +13,8 @@ import (
 	"github.com/sy9/axl/axl"
 )
 
+const Version = "0.1.0"
+
 var (
 	cucm    = flag.String("cucm", "", "FQDN or IP of CUCM Publisher / First Node (required)")
 	user    = flag.String("u", "", "AXL username (required)")
@@ -21,6 +23,8 @@ var (
 	schema  = flag.String("s", "12.5", "AXL schema version")
 	xmlfile = flag.String("xml", "", "XML filename for request input (required)")
 	csvfile = flag.String("csv", "", "CSV filename for bulk requests")
+	dump    = flag.Bool("dump", false, "dump request and response headers and body")
+	ver     = flag.Bool("v", false, "show version and exit")
 )
 
 func readCSV(filename string) [][]string {
@@ -43,6 +47,11 @@ func readCSV(filename string) [][]string {
 
 func main() {
 	flag.Parse()
+	if *ver {
+		fmt.Printf("AXL version: %s\n", Version)
+		os.Exit(1)
+	}
+
 	if len(*cucm) == 0 || len(*xmlfile) == 0 || len(*user) == 0 || len(*pass) == 0 {
 		flag.Usage()
 		os.Exit(1)
@@ -64,7 +73,8 @@ func main() {
 	client := axl.NewClient(*cucm).
 		SetAuthentication(*user, *pass).
 		SetSchemaVersion(*schema).
-		SetInsecureSkipVerify(*insec)
+		SetInsecureSkipVerify(*insec).
+		SetRequestResponseDump(*dump)
 
 	for csvHandler.Next() {
 		r, w := io.Pipe()
