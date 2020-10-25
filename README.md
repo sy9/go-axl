@@ -60,6 +60,10 @@ In bulk mode, one XML request is sent for each CSV line. The individual values f
 * `-k` ignore TLS certificate
 * `-s <schema-version>` AXL schema version (default is 12.5)
 
+## Save SQL response as CSV
+
+If you execute an `executeSQLQuery` AXL request you can use the `-savesql myfile.csv` command to save the response in CSV format. The first line will be a comment (starting with `#`) documenting the column names. You can use this CSV file for later AXL requests if needed.
+
 ## Common error codes
 
 If something goes wrong you should see an error code explaining the reason. Here are some common ones sent by CUCM:
@@ -73,7 +77,6 @@ These are HTTP error codes. If one of these errors is seen, or any network error
 ## Logging (Bulk mode only)
 
 In bulk mode (using a CSV file), the tool logs one line per CSV line to stdout per default. The content of the first column is included in the log line per default. To include other CSV columns, use the `{{varlog n}}` syntax, where n refers to the CSV column (again starting as 0). Each CSV column mentioned by `varlog` will be included in the log output. 
-If you add the `log` parameter (e.g. `{{var 0 log}}`) the corresponding value will be added in the output log.
 
 ## XML & Encoding
 
