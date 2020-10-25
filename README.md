@@ -56,6 +56,8 @@ In bulk mode, one XML request is sent for each CSV line. The individual values f
 * `-dump` dump HTTP request and response (incl. full body)
 * `-csv <filename>` run in bulk mode using specified CSV file
 * `-savesql <filename>` save executeSQLQueryResponse data as CSV in specified file
+* `-k` ignore TLS certificate
+* `-s <schema-version>` AXL schema version (default is 12.5)
 
 ## Common error codes
 
