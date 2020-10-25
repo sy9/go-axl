@@ -25,7 +25,6 @@ type SOAPEnvelope struct {
 	} `xml:"Body"`
 }
 
-
 // AXLError contains AXL error details
 type AXLError struct {
 	Faultcode       string `xml:"Body>Fault>faultcode"`

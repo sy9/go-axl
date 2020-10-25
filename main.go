@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/csv"
+	"encoding/xml"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/sy9/axl/axl"
 )
@@ -25,6 +28,8 @@ var (
 	csvfile = flag.String("csv", "", "CSV filename for bulk requests")
 	dump    = flag.Bool("dump", false, "dump request and response headers and body")
 	ver     = flag.Bool("v", false, "show version and exit")
+	pp      = flag.Bool("pp", false, "pretty print successful XML response body")
+	sqlfile = flag.String("savesql", "", "save executeSQLQueryResponse as CSV into file")
 )
 
 func readCSV(filename string) [][]string {
@@ -37,12 +42,93 @@ func readCSV(filename string) [][]string {
 
 	defer f.Close()
 
-	records, err = csv.NewReader(f).ReadAll()
+	reader := csv.NewReader(f)
+	reader.Comment = '#'
+	records, err = reader.ReadAll()
 	if err != nil {
 		log.Fatalf("error reading CSV file: %v", err)
 	}
 
 	return records
+}
+
+func decodeRow(body []byte, getHeader bool) []string {
+	dec := xml.NewDecoder(bytes.NewReader(body))
+
+	var (
+		cd        string
+		output    []string
+		startSeen bool
+	)
+
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			if err == io.EOF {
+				return output
+			}
+			log.Fatalf("error decoding token: %v", err)
+		}
+		switch tok := tok.(type) {
+		case xml.StartElement:
+			startSeen = true
+			if getHeader {
+				output = append(output, tok.Name.Local)
+			}
+		case xml.CharData:
+			if startSeen {
+				cd = string(tok.Copy())
+			}
+		case xml.EndElement:
+			if startSeen && !getHeader {
+				output = append(output, cd)
+				cd = ""
+				startSeen = false
+			}
+		default:
+			startSeen = false
+		}
+	}
+}
+
+func saveSQLResponse(filename string, body []byte) {
+	f, err := os.Create(filename)
+	if err != nil {
+		log.Fatal("unable to create file: %v", err)
+	}
+	enc := csv.NewWriter(f)
+	type (
+		Row struct {
+			Data []byte `xml:",innerxml"`
+		}
+
+		Env struct {
+			Return []Row `xml:"return>row"`
+		}
+	)
+	var (
+		env           Env
+		headerWritten bool
+	)
+
+	if err := xml.NewDecoder(bytes.NewReader(body)).Decode(&env); err != nil {
+		log.Fatalf("error decoding: %v", err)
+	}
+	var records [][]string
+	for _, row := range env.Return {
+		if !headerWritten {
+			records = append(records, decodeRow(row.Data, true))
+			headerWritten = true
+		}
+		records = append(records, decodeRow(row.Data, false))
+	}
+	// Comment out header line
+	if records != nil && records[0] != nil && len(records[0][0]) > 0 {
+		records[0][0] = strings.Join([]string{"#", records[0][0]}, "")
+	}
+	enc.WriteAll(records)
+	enc.Flush()
+	f.Close()
 }
 
 func main() {
@@ -86,7 +172,7 @@ func main() {
 			w.Close()
 		}()
 
-		_, err := client.AXLRequest(r)
+		resp, err := client.AXLRequest(r)
 		result := "success"
 		if err != nil {
 			//if err, ok := err.(*axl.AXLError); ok{
@@ -96,6 +182,31 @@ func main() {
 			} else {
 				log.Fatalf("error from AXLRequest: %v", err)
 			}
+		}
+		if len(*sqlfile) > 0 {
+			saveSQLResponse(*sqlfile, resp)
+		}
+
+		if *pp { // pretty-print XML output
+			enc := xml.NewEncoder(os.Stdout)
+			enc.Indent("", "  ")
+			dec := xml.NewDecoder(bytes.NewReader(resp))
+			for {
+				tok, err := dec.Token()
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					log.Fatalf("error decoding XML response: %v", err)
+				}
+				if err := enc.EncodeToken(tok); err != nil {
+					log.Fatalf("error encoding XML token: %v", err)
+				}
+			}
+			if err := enc.Flush(); err != nil {
+				log.Fatalf("error flushing: %v", err)
+			}
+			fmt.Println()
 		}
 		log.Printf("%s Result: %s", csvHandler.LogIndexAndItem(), result)
 	}
