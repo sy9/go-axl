@@ -16,7 +16,7 @@ import (
 	"github.com/sy9/axl/axl"
 )
 
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 var (
 	cucm    = flag.String("cucm", "", "FQDN or IP of CUCM Publisher / First Node (required)")
