@@ -13,7 +13,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sy9/axl/axl"
+	"github.com/sy9/go-axl/internal/axl"
 )
 
 const Version = "0.1.1"

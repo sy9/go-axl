@@ -1,3 +1,3 @@
-module github.com/sy9/axl
+module github.com/sy9/go-axl
 
 go 1.15
