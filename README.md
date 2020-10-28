@@ -1,4 +1,4 @@
-# AXL Tool
+# Go-AXL Tool
 
 This tool is a low-level vehicle to transmit arbitrary AXL requests to Cisco Unified Communications Manager (CUCM). The user needs to understand AXL and write the XML requests themselves. Understanding the [AXL documentation](https://developer.cisco.com/docs/axl/) and translating it into valid XML is necessary. The tool is 'self-contained' and has no external runtime dependencies. It can be compiled for Linux/Windows/Mac OS etc. The tool can be used in different operating modes.
 
