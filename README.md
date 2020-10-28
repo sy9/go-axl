@@ -79,7 +79,7 @@ axlsql.xml:
 
 ## Build instructions
 
-In order to successfully build the tool yourself you need to have the Go tool installed. Note that Go does not need to be installed to just run the compiled binary. After installing Go (and git), you can follow these steps on the command line / in the terminal:
+In order to successfully build the tool yourself you need to have the [Go tool](https://golang.org/dl/) installed. Note that Go does not need to be installed to just run the compiled binary. After installing Go (and git), you can follow these steps on the command line / in the terminal:
 
 1. Clone the repo
 
