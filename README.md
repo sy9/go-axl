@@ -1,12 +1,21 @@
 # AXL Tool
 
+This tool is a low-level vehicle to transmit arbitrary AXL requests to Cisco Unified Communications Manager (CUCM). The user needs to understand AXL and write the XML requests themselves. Understanding the [AXL documentation](https://developer.cisco.com/docs/axl/) and translating it into valid XML is necessary. The tool is 'self-contained' and has no external runtime dependencies. It can be compiled for Linux/Windows/Mac OS etc. The tool can be used in different operating modes.
 
-Issue AXL requests to Cisco Unified Communications Manager (CUCM).
+## Usage and Operating Modes
 
-Usage example:
+A few things to point out:
+* if you want to ignore the TLS certificate, use the `-k` option
+* default AXL schema is 12.5, it can be changed with `-s 10.0` for example
+* the AXL method is derived from the top-level XML element (`addRoutePartition`) in this example
+
+There are three operating modes available:
+
+1. **Single AXL request** - write an XML file containing the AXL request and send it to CUCM:
 
 ```xml
 addRP.xml:
+
 <addRoutePartition>
   <routePartition>
     <name>AXL_PT</name>
@@ -14,17 +23,26 @@ addRP.xml:
 </addRoutePartition>
 ```
 
-`axl -cucm 10.10.20.1 -u axladmin -p cisco123 -xml addRP.xml`
+```bash
+./axl -cucm 10.10.20.1 -u axladmin -p cisco123 -xml addRP.xml
+```
 
-A few things to point out:
-* if you want to ignore the TLS certificate, use the `-k` option
-* default AXL schema is 12.5, it can be changed with `-s 10.0` for example
-* the AXL method is derived from the top-level XML element (`addRoutePartition`) in this example
+As a variation, you can also issue a get request and print the formatted XML output to the console:
+```xml
+smart.xml:
 
-By specifying a CSV file, you can run AXL requests in bulk. Usage example:
+<getSmartLicenseStatus></getSmartLicenseStatus>
+```
+
+```bash
+./axl -cucm 10.10.20.1 -u axladmin -p cisco123 -xml smart.xml -pp
+```
+
+2. **Bulk requests** - use a CSV file to send multiple AXL requests. Inside the XML file you refer to individual CSV columns using the `{{var n}} syntax` (n refers to the CSV column, starting at 0):
 
 ```xml
-addRPbulk.xml:
+addRPs.xml:
+
 <addRoutePartition>
   <routePartition>
     <name>{{var 0 }}</name>
@@ -34,15 +52,51 @@ addRPbulk.xml:
 ```
 
 ```csv
-rp.csv:
+routepartitions.csv:
+
 PT_One,First Partition
 PT_Two,Second Partition
 PT_Three,Third Partition
 ```
 
-`axl -cucm 10.10.20.1 -u axladmin -p cisco123 -xml addRPbulk.xml -csv rp.csv`
+```bash
+./axl -cucm 10.10.20.1 -u axladmin -p cisco123 -xml addRPs.xml -csv routepartitions.csv
+```
 
-In bulk mode, one XML request is sent for each CSV line. The individual values from your CSV are inserted using the `{{var n}}` syntax, where n refers to the CSV column, starting at 0 for the first column. 
+3. **SQL Query export** - you can save SQL query results as a CSV file, which can be used as input for additional requests:
+
+```xml
+axlsql.xml:
+
+<executeSQLQuery>
+  <sql>SELECT n.dnorpattern, n.description, rp.name AS routepartition FROM numplan n LEFT JOIN routepartition rp ON rp.pkid=n.fkroutepartition</sql>
+</executeSQLQuery>
+```
+
+```bash
+./axl -cucm 10.10.20.1 -u axladmin -p cisco123 -xml axlsql.xml -savesql result.csv
+```
+
+## Build instructions
+
+In order to successfully build the tool yourself you need to have the Go tool installed. Note that Go does not need to be installed to just run the compiled binary. After installing Go (and git), you can follow these steps on the command line / in the terminal:
+
+1. Clone the repo
+
+This will download the project into a new subdirectory.
+
+```bash
+git clone github.com/sy9/go-axl
+```
+
+2. Build
+
+```bash
+cd go-axl
+go build ./cmd/axl
+```
+
+You should have the compiled binary in your current directory which can be used directly (try `./axl -v`).
 
 ## Required parameters
 
