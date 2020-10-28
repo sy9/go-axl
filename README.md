@@ -86,7 +86,7 @@ In order to successfully build the tool yourself you need to have the [Go tool](
 This will download the project into a new subdirectory.
 
 ```bash
-git clone github.com/sy9/go-axl
+git clone https://github.com/sy9/go-axl.git
 ```
 
 2. Build
